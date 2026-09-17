@@ -226,3 +226,69 @@ YEF Network Admin Team`,
     }
   }
 );
+
+const incrementMemberTotals = async (uid, type, amount) => {
+  if (!uid || !type || !amount) return
+  const palmsKey = type === "oneToOne" ? "oneToOne" : type
+  const db = admin.firestore()
+  const now = admin.firestore.FieldValue.serverTimestamp()
+  const delta = admin.firestore.FieldValue.increment(amount)
+
+  await db.collection("memberSlips").doc(uid).set(
+    { [type]: delta, uid, updatedAt: now },
+    { merge: true }
+  )
+  await db.collection("palms").doc(uid).set(
+    { [palmsKey]: delta, uid, updatedAt: now },
+    { merge: true }
+  )
+}
+
+exports.deleteMemberSlip = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be logged in.")
+  }
+
+  const id = (request.data && request.data.id) || ""
+  if (!id) {
+    throw new HttpsError("invalid-argument", "Slip id is required.")
+  }
+
+  const db = admin.firestore()
+  const ref = db.collection("referrals").doc(id)
+  const snap = await ref.get()
+  if (!snap.exists) {
+    throw new HttpsError("not-found", "This slip was already removed.")
+  }
+
+  const row = snap.data() || {}
+  const uid = request.auth.uid
+  const fromUid = row.fromUid || row.from || null
+  if (fromUid !== uid) {
+    throw new HttpsError("permission-denied", "You can only delete slips you logged.")
+  }
+
+  const type = row.historyType || row.type || "referrals"
+  const toUid = row.toUid || null
+  const applyPalms = Boolean(row.historyType)
+
+  try {
+    if (applyPalms && type === "tyfcb") {
+      const amount = Number(row.amount) || Number(row.details && row.details.amount) || 0
+      if (amount) await incrementMemberTotals(fromUid, "tyfcb", -amount)
+      const linked = await db.collection("referrals").where("tyfcbId", "==", id).get()
+      await Promise.all(linked.docs.map((d) => d.ref.update({ tyfcbId: null })))
+    }
+
+    if (applyPalms && (type === "referrals" || type === "oneToOne" || type === "visitors")) {
+      await incrementMemberTotals(fromUid, type, -1)
+      if (toUid && toUid !== fromUid) await incrementMemberTotals(toUid, type, -1)
+    }
+
+    await ref.delete()
+    return { success: true }
+  } catch (err) {
+    console.error("deleteMemberSlip error:", err)
+    throw new HttpsError("internal", err.message || "Failed to delete slip.")
+  }
+})

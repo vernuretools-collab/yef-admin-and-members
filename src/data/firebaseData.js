@@ -1,8 +1,9 @@
-import { db } from './firebase'
+import { db, functions } from './firebase'
 import {
-  collection, getDocs, query, where, addDoc, updateDoc,
+  collection, getDocs, query, where, addDoc, updateDoc, deleteDoc,
   doc, setDoc, getDoc, increment, Timestamp, serverTimestamp
 } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 import { isConvertedReferral } from '../utils/referralStatus'
 
 
@@ -465,6 +466,37 @@ export const updateSlipHistory = async ({
         console.error('Failed to increment new member slip total:', err)
       }
     }
+  }
+}
+
+export const deleteSlipHistory = async (item) => {
+  if (!item?.id) throw new Error('Missing slip id')
+
+  const type = item.type || item.historyType
+  const fromUid = item.fromUid || item.from || null
+  const toUid = item.toUid || null
+  const applyPalms = Boolean(item.historyType) && !item.legacy && !item.prior
+
+  const adjustTotals = async () => {
+    if (applyPalms && type === 'tyfcb') {
+      const amount = Number(item.amount) || Number(item.details?.amount) || 0
+      if (amount && fromUid) await incrementSlip(fromUid, 'tyfcb', -amount)
+    }
+    if (applyPalms && (type === 'referrals' || type === 'oneToOne' || type === 'visitors')) {
+      if (fromUid) await incrementSlip(fromUid, type, -1)
+      if (toUid && toUid !== fromUid) await incrementSlip(toUid, type, -1)
+    }
+  }
+
+  try {
+    await adjustTotals()
+    await deleteDoc(doc(db, 'referrals', item.id))
+  } catch (err) {
+    const message = String(err?.message || '')
+    const permission = err?.code === 'permission-denied' || message.toLowerCase().includes('insufficient permissions')
+    if (!permission) throw err
+    const deleteMemberSlip = httpsCallable(functions, 'deleteMemberSlip')
+    await deleteMemberSlip({ id: item.id })
   }
 }
 

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { getMemberSlipHistory, getMembers, updateSlipHistory } from '../../data/firebaseData'
+import { getMemberSlipHistory, getMembers, updateSlipHistory, deleteSlipHistory } from '../../data/firebaseData'
 import {
   SLIP_TYPES,
   typeConfig,
   formatSlipDate,
   slipSummary,
   otherPartyName,
+  slipDetailRows,
 } from '../../utils/slipHistory'
 import {
   TYFCBForm,
@@ -23,9 +24,12 @@ import {
   BadgeDollarSign,
   Handshake,
   Users,
+  UserPlus,
+  Eye,
+  Trash2,
 } from 'lucide-react'
 
-const EDITABLE_TYPES = ['tyfcb', 'referrals', 'oneToOne']
+const MANAGEABLE_TYPES = ['tyfcb', 'referrals', 'oneToOne', 'visitors']
 
 const EDIT_TITLES = {
   tyfcb: 'Edit TYFCB',
@@ -33,20 +37,39 @@ const EDIT_TITLES = {
   oneToOne: 'Edit One-to-One',
 }
 
-const EDIT_ICONS = {
+const VIEW_TITLES = {
+  tyfcb: 'TYFCB details',
+  referrals: 'Referral details',
+  oneToOne: 'One-to-One details',
+  visitors: 'Visitor details',
+}
+
+const TYPE_ICONS = {
   tyfcb: BadgeDollarSign,
   referrals: Handshake,
   oneToOne: Users,
+  visitors: UserPlus,
+}
+
+const isRealSlip = (item) => {
+  if (!item || item.prior) return false
+  const id = String(item.id || '')
+  return Boolean(id) && !id.startsWith('embedded-') && !id.startsWith('prior-')
 }
 
 const canEditSlip = (item, uid) => {
-  if (!item || !uid) return false
-  if (item.prior) return false
-  const id = String(item.id || '')
-  if (!id || id.startsWith('embedded-') || id.startsWith('prior-')) return false
+  if (!isRealSlip(item) || !uid) return false
   if (item.fromUid !== uid) return false
-  return EDITABLE_TYPES.includes(item.type)
+  return item.type === 'tyfcb' || item.type === 'referrals' || item.type === 'oneToOne'
 }
+
+const canDeleteSlip = (item, uid) => {
+  if (!isRealSlip(item) || !uid) return false
+  if (item.fromUid !== uid) return false
+  return MANAGEABLE_TYPES.includes(item.type)
+}
+
+const canViewSlip = (item) => isRealSlip(item)
 
 const resolveMember = (members, uid, name) => {
   if (uid) {
@@ -100,6 +123,8 @@ export default function SlipHistory() {
   const [filter, setFilter] = useState('all')
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
+  const [viewing, setViewing] = useState(null)
+  const [deleting, setDeleting] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -179,6 +204,25 @@ export default function SlipHistory() {
     }
   }
 
+  const handleDelete = async () => {
+    if (!deleting || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      await deleteSlipHistory(deleting)
+      setDeleting(null)
+      setViewing(null)
+      setToast('Activity deleted')
+      setTimeout(() => setToast(''), 2500)
+      await load()
+    } catch (err) {
+      console.error('Failed to delete activity:', err)
+      setError('Could not delete this slip. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <div className="flex flex-col items-center gap-3">
@@ -191,8 +235,11 @@ export default function SlipHistory() {
   const FormComponent = editing
     ? { tyfcb: TYFCBForm, referrals: ReferralForm, oneToOne: OneToOneForm }[editing.type]
     : null
-  const EditIcon = editing ? (EDIT_ICONS[editing.type] || Pencil) : Pencil
+  const EditIcon = editing ? (TYPE_ICONS[editing.type] || Pencil) : Pencil
   const editCfg = editing ? (typeConfig[editing.type] || typeConfig.referrals) : null
+  const ViewIcon = viewing ? (TYPE_ICONS[viewing.type] || Eye) : Eye
+  const viewCfg = viewing ? (typeConfig[viewing.type] || typeConfig.referrals) : null
+  const viewRows = viewing ? slipDetailRows(viewing) : []
 
   return (
     <div className="flex flex-col gap-6">
@@ -205,7 +252,7 @@ export default function SlipHistory() {
           My Activity
         </h1>
         <p className="text-sm text-[#5c607a] dark:text-[#8890b0] mt-1">
-          Thank-you slips, referrals, one-to-ones, and visitors you have logged. You can edit TYFCB, referrals, and one-to-ones you submitted. Older totals appear as “Before tracking” when names were not saved.
+          Thank-you slips, referrals, one-to-ones, and visitors you have logged. You can view details, edit TYFCB, referrals, and one-to-ones you submitted, and delete slips you logged. Older totals appear as “Before tracking” when names were not saved.
         </p>
       </div>
 
@@ -249,6 +296,8 @@ export default function SlipHistory() {
             const other = otherPartyName(item, user?.uid)
             const comments = item.details?.comments || item.details?.topics || item.details?.notes
             const editable = canEditSlip(item, user?.uid)
+            const viewable = canViewSlip(item)
+            const deletable = canDeleteSlip(item, user?.uid)
 
             return (
               <div
@@ -298,7 +347,17 @@ export default function SlipHistory() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      {viewable && (
+                        <button
+                          type="button"
+                          onClick={() => { setError(''); setViewing(item) }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-[#CDD0E0] dark:border-[#313655] text-[#5c607a] dark:text-[#8890b0] hover:bg-[#EEF0F7] dark:hover:bg-[#1a1e30] transition"
+                        >
+                          <Eye size={12} strokeWidth={2.4} />
+                          View
+                        </button>
+                      )}
                       {editable && (
                         <button
                           type="button"
@@ -307,6 +366,16 @@ export default function SlipHistory() {
                         >
                           <Pencil size={12} strokeWidth={2.4} />
                           Edit
+                        </button>
+                      )}
+                      {deletable && (
+                        <button
+                          type="button"
+                          onClick={() => { setError(''); setDeleting(item) }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-[#f5c6c7] dark:border-red-900 text-[#E31E24] hover:bg-[#fce8e8] dark:hover:bg-red-900/20 transition"
+                        >
+                          <Trash2 size={12} strokeWidth={2.4} />
+                          Delete
                         </button>
                       )}
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold ${cfg.badge}`}>
@@ -365,6 +434,87 @@ export default function SlipHistory() {
                 initial={initialFromItem(editing, editMembers)}
                 confirmLabel="Save changes"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewing && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ backgroundColor: 'rgba(10,12,25,0.55)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => e.target === e.currentTarget && setViewing(null)}
+        >
+          <div className="bg-white dark:bg-[#161929] w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-[#CDD0E0] dark:border-[#313655] shadow-[0_20px_60px_rgba(0,0,0,0.25)] flex flex-col max-h-[90dvh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#EEF0F7] dark:border-[#313655] flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${viewCfg?.badge || 'bg-[#EEF0F7]'}`}>
+                  <ViewIcon size={15} strokeWidth={2} />
+                </div>
+                <h2
+                  className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0]"
+                  style={{ fontFamily: "'DM Sans', sans-serif" }}
+                >
+                  {VIEW_TITLES[viewing.type] || 'Slip details'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewing(null)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-[#9ea3ba] hover:text-[#1a1d2e] dark:hover:text-[#e4e6f0] hover:bg-[#EEF0F7] dark:hover:bg-[#252a45] transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5 flex-1 flex flex-col gap-3">
+              {viewRows.length === 0 ? (
+                <p className="text-sm text-[#9ea3ba]">No extra details were saved for this slip.</p>
+              ) : (
+                viewRows.map(row => (
+                  <div key={row.label}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[#9ea3ba]">{row.label}</div>
+                    <div className="text-sm text-[#1a1d2e] dark:text-[#e4e6f0] mt-0.5 whitespace-pre-wrap">{row.value}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleting && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ backgroundColor: 'rgba(10,12,25,0.55)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => e.target === e.currentTarget && !saving && setDeleting(null)}
+        >
+          <div className="bg-white dark:bg-[#161929] w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-[#CDD0E0] dark:border-[#313655] shadow-[0_20px_60px_rgba(0,0,0,0.25)] p-5">
+            <h2
+              className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0]"
+              style={{ fontFamily: "'DM Sans', sans-serif" }}
+            >
+              Delete this slip?
+            </h2>
+            <p className="text-sm text-[#5c607a] dark:text-[#8890b0] mt-2">
+              {slipSummary(deleting)} will be removed from your activity. This cannot be undone.
+            </p>
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setDeleting(null)}
+                className="flex-1 py-2.5 rounded-xl border border-[#CDD0E0] dark:border-[#313655] text-sm font-semibold text-[#5c607a] dark:text-[#8890b0] hover:bg-[#EEF0F7] dark:hover:bg-[#252a45] transition disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleDelete}
+                className="flex-1 py-2.5 rounded-xl bg-[#E31E24] hover:bg-[#c41920] text-sm font-semibold text-white transition disabled:opacity-40"
+              >
+                {saving ? 'Deleting…' : 'Delete'}
+              </button>
             </div>
           </div>
         </div>

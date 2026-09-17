@@ -12,7 +12,9 @@ import {
   addSlipHistory,
   recordTyfcb,
   sumMemberTyfcbCredit,
+  getMemberSlipHistory,
 } from '../../data/firebaseData'
+import { STATS_PERIODS, summarizeMemberPeriodStats } from '../../utils/memberPeriodStats'
 import {
   RadarChart,
   Radar,
@@ -251,6 +253,68 @@ function SlipModal({ slipKey, slip, onConfirm, onClose, members = [] }) {
 
 // ─── SlipCard ─────────────────────────────────────────────────────────────────
 
+function PeriodStatsCard({ stats, period, onPeriodChange }) {
+  const rows = [
+    { label: 'One-to-One', value: stats.oneToOne },
+    { label: 'Referrals Given', value: stats.referralsGiven },
+    { label: 'Referrals Received', value: stats.referralsReceived },
+    { label: 'TYFCB Given', value: stats.tyfcbGiven },
+    { label: 'Revenue Received', value: stats.revenueReceived },
+    { label: 'Visitors', value: stats.visitors },
+    { label: 'CEUs', value: stats.ceus },
+  ]
+
+  return (
+    <div className={card + ' p-6'}>
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <h2
+          className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
+          style={{ fontFamily: "'DM Sans', sans-serif" }}
+        >
+          My PALMS Statistics
+        </h2>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {STATS_PERIODS.map(p => {
+            const active = period === p.key
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onPeriodChange(p.key)}
+                className={`pb-0.5 text-[10px] font-bold uppercase tracking-[0.12em] border-b-2 transition-colors ${
+                  active
+                    ? 'text-[#E31E24] border-[#E31E24]'
+                    : 'text-[#9ea3ba] border-transparent hover:text-[#5c607a] dark:hover:text-[#c5c9da]'
+                }`}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div>
+        {rows.map((row, i) => (
+          <div
+            key={row.label}
+            className={`flex items-center justify-between py-3 ${
+              i < rows.length - 1 ? 'border-b border-[#EEF0F7] dark:border-[#313655]' : ''
+            }`}
+          >
+            <span className="text-sm text-[#5c607a] dark:text-[#8890b0]">{row.label}</span>
+            <span
+              className="text-sm font-semibold text-[#1a1d2e] dark:text-[#e4e6f0] tabular-nums"
+              style={{ fontVariantNumeric: 'tabular-nums lining-nums' }}
+            >
+              {Number(row.value || 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SlipCard({ slip, value, saving, onOpenModal, onCopyInvite }) {
   const display = slip.isAmount ? `₹${Number(value).toLocaleString('en-IN')}` : value
   const isVisitors = slip.key === 'visitors'
@@ -315,12 +379,14 @@ export default function MemberDashboard() {
   const [toast, setToast] = useState(null)
   const [activeModal, setActiveModal] = useState(null)
   const [members, setMembers] = useState([])
+  const [slipHistory, setSlipHistory] = useState([])
+  const [statsPeriod, setStatsPeriod] = useState('lifetime')
 
   useEffect(() => {
     if (!user?.uid) return
     const load = async () => {
       try {
-        const [proj, refs, pal, meets, sl, userSnap, tyfcbCredit] = await Promise.all([
+        const [proj, refs, pal, meets, sl, userSnap, tyfcbCredit, history] = await Promise.all([
           getMemberProjects(user.uid),
           getMemberReferrals(user.uid),
           getMemberPalms(user.uid),
@@ -328,12 +394,14 @@ export default function MemberDashboard() {
           getMemberSlips(user.uid),
           getDocs(collection(db, 'users')),
           sumMemberTyfcbCredit(user.uid),
+          getMemberSlipHistory(user.uid),
         ])
         setProjects(proj)
         setReferrals(refs)
         setPalms({ ...(pal || {}), tyfcb: tyfcbCredit })
         setMeetings(meets)
         setSlips({ ...(sl || {}), tyfcb: tyfcbCredit })
+        setSlipHistory(history || [])
         const memberList = userSnap.docs
           .map(d => {
             const data = d.data() || {}
@@ -342,7 +410,12 @@ export default function MemberDashboard() {
               data.business || data.businessName || data.username || ''
             return { id: d.id, label, ...data }
           })
-          .filter(x => x.label)
+          .filter(x => {
+            if (!x.label) return false
+            const status = String(x.status || 'active').toLowerCase()
+            const role = String(x.role || '').toLowerCase()
+            return status === 'active' && role !== 'admin'
+          })
         setMembers(memberList)
       } catch (err) {
         console.error('Dashboard load failed:', err)
@@ -366,8 +439,12 @@ export default function MemberDashboard() {
     try {
       await incrementSlip(user.uid, key, step)
       showToast(SLIP_ITEMS.find(s => s.key === key)?.label)
-      const freshPalms = await getMemberPalms(user.uid)
+      const [freshPalms, history] = await Promise.all([
+        getMemberPalms(user.uid),
+        getMemberSlipHistory(user.uid),
+      ])
       setPalms(freshPalms || {})
+      setSlipHistory(history || [])
     } catch (err) {
       setSlips(s => ({ ...s, [key]: prev }))
       console.error(err)
@@ -404,11 +481,15 @@ export default function MemberDashboard() {
           amount: step,
           details: formData,
         })
-        const tyfcbCredit = await sumMemberTyfcbCredit(user.uid)
+        const [tyfcbCredit, freshPalms, history] = await Promise.all([
+          sumMemberTyfcbCredit(user.uid),
+          getMemberPalms(user.uid),
+          getMemberSlipHistory(user.uid),
+        ])
         setSlips(s => ({ ...s, tyfcb: tyfcbCredit }))
         showToast('TYFCBs')
-        const freshPalms = await getMemberPalms(user.uid)
         setPalms({ ...(freshPalms || {}), tyfcb: tyfcbCredit })
+        setSlipHistory(history || [])
       } catch (err) {
         setSlips(s => ({ ...s, tyfcb: prev }))
         console.error(err)
@@ -441,6 +522,8 @@ export default function MemberDashboard() {
         amount: activeModal === 'tyfcb' ? step : 0,
         details: formData,
       })
+      const history = await getMemberSlipHistory(user.uid)
+      setSlipHistory(history || [])
     } catch (err) {
       console.error('Failed to save slip history:', err)
       setToast('Slip saved, but history did not update')
@@ -450,6 +533,11 @@ export default function MemberDashboard() {
   const upcoming = useMemo(
     () => meetings.filter(m => new Date(m.date) >= new Date()).slice(0, 3),
     [meetings]
+  )
+
+  const periodStats = useMemo(
+    () => summarizeMemberPeriodStats(slipHistory, user?.uid, statsPeriod, palms),
+    [slipHistory, user?.uid, statsPeriod, palms]
   )
 
   const radarData = useMemo(() => {
@@ -560,8 +648,14 @@ export default function MemberDashboard() {
         </div>
       </div>
 
-      {/* PALMS + Meetings */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* Period stats + PALMS + Meetings */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        <PeriodStatsCard
+          stats={periodStats}
+          period={statsPeriod}
+          onPeriodChange={setStatsPeriod}
+        />
 
         {/* Radar */}
         <div className={card + ' p-6'}>

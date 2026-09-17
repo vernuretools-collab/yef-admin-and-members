@@ -75,3 +75,56 @@ export const otherPartyName = (item, uid) => {
   if (item.fromName && item.toName) return `${item.fromName} → ${item.toName}`
   return item.toName || item.fromName || '—'
 }
+
+const pushDetail = (rows, label, value) => {
+  if (value === undefined || value === null || value === '') return
+  if (typeof value === 'boolean') {
+    rows.push({ label, value: value ? 'Yes' : 'No' })
+    return
+  }
+  rows.push({ label, value: String(value) })
+}
+
+export const slipDetailRows = (item) => {
+  const d = item?.details || {}
+  const rows = []
+  if (item?.type === 'tyfcb') {
+    pushDetail(rows, 'Amount', currency(item.amount || d.amount || 0))
+    pushDetail(rows, 'Thank you to', d.thankYouTo || item.toName)
+    pushDetail(rows, 'Business type', d.businessType)
+    pushDetail(rows, 'Referral type', d.referralType)
+    pushDetail(rows, 'Comments', d.comments)
+  } else if (item?.type === 'referrals') {
+    pushDetail(rows, 'Referral name', d.referral || d.client || item.client)
+    pushDetail(rows, 'To', d.to || item.toName)
+    pushDetail(rows, 'From', item.fromName)
+    pushDetail(rows, 'Referral type', d.referralType)
+    pushDetail(rows, 'Telephone', d.telephone)
+    pushDetail(rows, 'Email', d.email)
+    pushDetail(rows, 'Address', d.address)
+    pushDetail(rows, 'Told them you would call', d.toldThem)
+    pushDetail(rows, 'Given your card', d.givenCard)
+    if (d.heat !== undefined && d.heat !== null && d.heat !== '') {
+      pushDetail(rows, 'Strength', `${Number(d.heat) + 1} / 5`)
+    }
+    pushDetail(rows, 'Comments', d.comments || item.notes)
+  } else if (item?.type === 'oneToOne') {
+    pushDetail(rows, 'With', d.with || item.toName)
+    pushDetail(rows, 'Initiated by', d.initiatedBy)
+    pushDetail(rows, 'Where', d.where)
+    pushDetail(rows, 'Date', d.date || item.date)
+    pushDetail(rows, 'Topics', d.topics)
+  } else if (item?.type === 'visitors') {
+    pushDetail(rows, 'Visitor name', d.visitorName || d.name)
+    pushDetail(rows, 'Company', d.company)
+    pushDetail(rows, 'Telephone', d.telephone)
+    pushDetail(rows, 'Email', d.email)
+    pushDetail(rows, 'Invited by', d.invitedBy || item.toName)
+    pushDetail(rows, 'Visit source', d.source)
+    pushDetail(rows, 'Date of visit', d.date || item.date)
+    pushDetail(rows, 'Interested in membership', d.interestedInMembership)
+    pushDetail(rows, 'Comments', d.comments)
+  }
+  pushDetail(rows, 'Logged on', formatSlipDate(item))
+  return rows
+}

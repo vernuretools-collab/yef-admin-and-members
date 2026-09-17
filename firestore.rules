@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public site (members directory, visit-meeting) reads without login.
+    // Logged-in members/admins can create and update.
+    match /{document=**} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+    }
+
+    // Only extra change: members can delete slips they logged.
+    match /referrals/{slipId} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+      allow delete: if request.auth != null && (
+        resource.data.from == request.auth.uid ||
+        resource.data.fromUid == request.auth.uid
+      );
+    }
+  }
+}
