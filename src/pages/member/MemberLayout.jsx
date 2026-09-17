@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import {
   LayoutDashboard, User, FolderKanban, Handshake,
   BookUser, CalendarDays, LogOut, Menu, X, Sun, Moon,
-  Pencil, ChevronRight, History
+  Pencil, ChevronRight, Activity
 } from 'lucide-react'
 import yeflogo from '../../assets/yef.png'
 
@@ -12,7 +12,7 @@ const navItems = [
   { to: '/member/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
   { to: '/member/edit-profile', icon: Pencil,          label: 'My Profile' },
   { to: '/member/referrals',    icon: Handshake,       label: 'My Referrals' },
-  { to: '/member/history',      icon: History,         label: 'History'       },
+  { to: '/member/history',      icon: Activity,        label: 'Activity'      },
   { to: '/member/directory',    icon: BookUser,        label: 'Directory'    },
   { to: '/member/meetings',     icon: CalendarDays,    label: 'Meetings'     },
 ]

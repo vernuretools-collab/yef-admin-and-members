@@ -1,31 +1,16 @@
 import { useState, useEffect, useMemo } from 'react'
 import { getAllReferrals, getMembers, currency } from '../../data/firebaseData'
 import { Handshake, ArrowRight, Search, Loader2, TrendingUp, RefreshCw, CheckCircle2 } from 'lucide-react'
+import { getReferralStatusMeta, isConvertedReferral } from '../../utils/referralStatus'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, ResponsiveContainer
 } from 'recharts'
 
 /* ─── Status config — YEF tokens ────────────────────────────────────── */
-const statusConfig = {
-  given: {
-    badge: 'bg-[#dce1f5] text-[#1B2E6B] dark:bg-[#1e254a] dark:text-[#7b95e4]',
-    label: 'Open',
-  },
-  received: {
-    badge: 'bg-[#fff3e0] text-[#e65100] dark:bg-orange-900/30 dark:text-orange-400',
-    label: 'Received',
-  },
-  converted: {
-    badge: 'bg-[#e8f5e9] text-[#2e7d32] dark:bg-green-900/30 dark:text-green-400',
-    label: 'Converted ✓',
-  },
-}
-
 const STATUS_FILTERS = ['all', 'open', 'converted']
 
-const rowBadge = (r) =>
-  r.status === 'converted' ? statusConfig.converted : statusConfig.given
+const rowBadge = (r) => getReferralStatusMeta(r.status)
 
 /* ─── Shared tokens ──────────────────────────────────────────────────────── */
 const card      = 'bg-white dark:bg-[#161929] rounded-2xl border border-[#CDD0E0] dark:border-[#313655] shadow-[0_1px_3px_rgba(27,46,107,0.07)]'
@@ -67,7 +52,7 @@ export default function AdminReferrals() {
   }, [])
 
   /* ── Derived stats ── */
-  const converted  = useMemo(() => referrals.filter(r => r.status === 'converted'), [referrals])
+  const converted  = useMemo(() => referrals.filter(r => isConvertedReferral(r)), [referrals])
   const totalTYFCB = useMemo(() => converted.reduce((a, b) => a + (b.value || 0), 0), [converted])
   const convRate   = referrals.length
     ? Math.round((converted.length / referrals.length) * 100)
@@ -94,8 +79,8 @@ export default function AdminReferrals() {
       to?.name?.toLowerCase().includes(search.toLowerCase())
     const matchStatus =
       filterStatus === 'all' ||
-      (filterStatus === 'converted' && r.status === 'converted') ||
-      (filterStatus === 'open' && r.status !== 'converted')
+      (filterStatus === 'converted' && isConvertedReferral(r)) ||
+      (filterStatus === 'open' && !isConvertedReferral(r))
     return matchSearch && matchStatus
   }), [referrals, membersMap, search, filterStatus])
 

@@ -1,20 +1,19 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { db } from '../../data/firebase'
-import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore'
-import { getMembers, currency, incrementSlip, markReferralConverted, recordTyfcb } from '../../data/firebaseData'
-import { Handshake, Plus, X, ArrowRight, ArrowLeft, RefreshCw, Loader2 } from 'lucide-react'
+import { collection, getDocs, query, where } from 'firebase/firestore'
+import { getMembers, currency, updateReferralStatus, recordTyfcb } from '../../data/firebaseData'
+import {
+  REFERRAL_STATUSES,
+  isConvertedReferral,
+  getReferralStatusMeta,
+  normalizeReferralStatus,
+} from '../../utils/referralStatus'
+import { Handshake, X, ArrowRight, ArrowLeft, RefreshCw, Loader2 } from 'lucide-react'
 
-const isConverted = (r) => r.status === 'converted'
+const isGivenBy = (r, uid) => r.from === uid || r.fromUid === uid
+const isReceivedBy = (r, uid) => r.to === uid || r.toUid === uid
 
-const statusConfig = {
-  pending:   { badge: 'bg-[#dce1f5] text-[#1B2E6B] dark:bg-[#1e254a] dark:text-[#7b95e4]',     label: 'Open'        },
-  given:     { badge: 'bg-[#dce1f5] text-[#1B2E6B] dark:bg-[#1e254a] dark:text-[#7b95e4]',     label: 'Open'        },
-  received:  { badge: 'bg-[#fff3e0] text-[#e65100] dark:bg-orange-900/30 dark:text-orange-400', label: 'Open'        },
-  converted: { badge: 'bg-[#e8f5e9] text-[#2e7d32] dark:bg-green-900/30 dark:text-green-400',   label: 'Converted ✓' },
-}
-
-const emptyForm = { to: '', client: '', value: '', notes: '' }
 const emptyTyfcb = { amount: '', businessType: 'New', referralType: 'Inside', comments: '' }
 
 const inputCls = `w-full px-3.5 py-2.5 rounded-xl border border-[#CDD0E0] dark:border-[#313655]
@@ -52,13 +51,10 @@ export default function MyReferrals() {
   const { user } = useAuth()
 
   const [referrals,   setReferrals]   = useState([])
-  const [members,     setMembers]     = useState([])
   const [membersMap,  setMembersMap]  = useState({})
   const [loading,     setLoading]     = useState(true)
   const [saving,      setSaving]      = useState(false)
-  const [showForm,    setShowForm]    = useState(false)
   const [filter,      setFilter]      = useState('all')
-  const [form,        setForm]        = useState(emptyForm)
   const [error,       setError]       = useState('')
   const [tyfcbTarget, setTyfcbTarget] = useState(null)
   const [tyfcbForm,   setTyfcbForm]   = useState(emptyTyfcb)
@@ -83,7 +79,6 @@ export default function MyReferrals() {
         const mMap = {}
         memberList.forEach(m => { mMap[m.uid] = m })
         setMembersMap(mMap)
-        setMembers(memberList.filter(m => m.uid !== user.uid))
       } catch (err) {
         console.error('Failed to load referrals:', err)
       } finally {
@@ -95,63 +90,19 @@ export default function MyReferrals() {
 
   const filtered = useMemo(() => {
     if (filter === 'all') return referrals
-    if (filter === 'given') return referrals.filter(r => r.from === user?.uid && !isConverted(r))
-    if (filter === 'received') return referrals.filter(r => r.to === user?.uid && !isConverted(r))
-    if (filter === 'converted') return referrals.filter(isConverted)
+    if (filter === 'given') return referrals.filter(r => isGivenBy(r, user?.uid))
+    if (filter === 'received') return referrals.filter(r => isReceivedBy(r, user?.uid))
+    if (filter === 'converted') return referrals.filter(r => isConvertedReferral(r) && isReceivedBy(r, user?.uid))
     return referrals
   }, [referrals, filter, user?.uid])
 
-  const converted     = useMemo(() => referrals.filter(isConverted), [referrals])
-  const givenCount    = useMemo(() => referrals.filter(r => r.from === user?.uid).length, [referrals, user])
-  const receivedCount = useMemo(() => referrals.filter(r => r.to === user?.uid && !isConverted(r)).length, [referrals, user])
+  const converted     = useMemo(
+    () => referrals.filter(r => isConvertedReferral(r) && isReceivedBy(r, user?.uid)),
+    [referrals, user]
+  )
+  const givenCount    = useMemo(() => referrals.filter(r => isGivenBy(r, user?.uid)).length, [referrals, user])
+  const receivedCount = useMemo(() => referrals.filter(r => isReceivedBy(r, user?.uid)).length, [referrals, user])
   const tyfcbTotal    = useMemo(() => converted.reduce((a, b) => a + (b.value || 0), 0), [converted])
-
-  const handleAdd = async () => {
-    if (!form.to)            return setError('Select a member to refer to')
-    if (!form.client.trim()) return setError('Enter client name')
-    const estimated = form.value === '' ? 0 : Number(form.value)
-    if (form.value !== '' && isNaN(estimated)) return setError('Enter a valid estimated value')
-    setSaving(true)
-    setError('')
-    try {
-      const toMember = membersMap[form.to]
-      const newRef = {
-        from:      user.uid,
-        to:        form.to,
-        fromUid:   user.uid,
-        toUid:     form.to,
-        fromName:  user?.name || user?.displayName || '',
-        toName:    toMember?.name || '',
-        client:    form.client.trim(),
-        status:    'pending',
-        value:     estimated || 0,
-        notes:     form.notes.trim(),
-        date:      new Date().toISOString().slice(0, 10),
-        historyType: 'referrals',
-        details: {
-          referral: form.client.trim(),
-          comments: form.notes.trim(),
-          value: estimated || 0,
-        },
-        createdAt: serverTimestamp(),
-      }
-      const ref = await addDoc(collection(db, 'referrals'), newRef)
-      try {
-        await incrementSlip(user.uid, 'referrals', 1)
-        await incrementSlip(form.to, 'referrals', 1)
-      } catch (incErr) {
-        console.error('Referral total increment failed:', incErr)
-      }
-      setReferrals(prev => [{ id: ref.id, ...newRef }, ...prev])
-      setForm(emptyForm)
-      setShowForm(false)
-    } catch (err) {
-      setError('Failed to save referral. Please try again.')
-      console.error(err)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const openThankYou = (referral) => {
     setTyfcbError('')
@@ -159,16 +110,22 @@ export default function MyReferrals() {
     setTyfcbTarget(referral)
   }
 
-  const handleMarkConverted = async (referral) => {
+  const handleStatusChange = async (referral, nextStatus) => {
+    const current = normalizeReferralStatus(referral.status)
+    if (nextStatus === current) {
+      if (nextStatus === 'got_business' && !referral.tyfcbId) openThankYou(referral)
+      return
+    }
     setSaving(true)
+    setError('')
     try {
-      await markReferralConverted(referral.id)
-      const next = { ...referral, status: 'converted' }
+      await updateReferralStatus(referral.id, nextStatus)
+      const next = { ...referral, status: nextStatus }
       setReferrals(prev => prev.map(r => r.id === referral.id ? next : r))
-      openThankYou(next)
+      if (nextStatus === 'got_business' && !referral.tyfcbId) openThankYou(next)
     } catch (err) {
       console.error(err)
-      setError('Could not mark this referral as converted.')
+      setError('Could not update referral status.')
     } finally {
       setSaving(false)
     }
@@ -202,7 +159,7 @@ export default function MyReferrals() {
         referralId: tyfcbTarget.id,
       })
       setReferrals(prev => prev.map(r => r.id === tyfcbTarget.id
-        ? { ...r, status: 'converted', value: amount, amount, tyfcbId }
+        ? { ...r, status: 'got_business', value: amount, amount, tyfcbId }
         : r
       ))
       setTyfcbTarget(null)
@@ -214,8 +171,6 @@ export default function MyReferrals() {
       setTyfcbSaving(false)
     }
   }
-
-  const closeForm = () => { setShowForm(false); setError(''); setForm(emptyForm) }
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -239,25 +194,17 @@ export default function MyReferrals() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <p className="eyebrow">Member Portal</p>
-          <h1
-            className="text-2xl font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
-            style={{ fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif" }}
-          >
-            My Referrals
-          </h1>
-          <p className="text-sm text-[#5c607a] dark:text-[#8890b0] mt-1">
-            Referrals you give and receive. The receiver marks converted and logs the thank-you amount.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="btn-primary flex items-center gap-2 px-4 py-2.5 text-sm w-fit flex-shrink-0"
+      <div>
+        <p className="eyebrow">Member Portal</p>
+        <h1
+          className="text-2xl font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
+          style={{ fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif" }}
         >
-          <Plus size={15} strokeWidth={2.5} /> Log Referral
-        </button>
+          My Referrals
+        </h1>
+        <p className="text-sm text-[#5c607a] dark:text-[#8890b0] mt-1">
+          Referrals you give and receive. The receiver updates status; Got The Business logs the thank-you amount.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -297,104 +244,10 @@ export default function MyReferrals() {
         ))}
       </div>
 
-      {showForm && (
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2
-                className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0]"
-                style={{ fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif" }}
-              >
-                Log a Referral Slip
-              </h2>
-              <p className="text-xs text-[#9ea3ba] mt-0.5">The member you refer to will see this under Received</p>
-            </div>
-            <button
-              onClick={closeForm}
-              className="p-1.5 rounded-lg hover:bg-[#EEF0F7] dark:hover:bg-[#1c2035] text-[#9ea3ba] hover:text-[#1a1d2e] dark:hover:text-[#e4e6f0] transition-colors"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          {error && (
-            <div className="mb-4 flex items-center gap-2 px-4 py-3 rounded-xl bg-[#fce8e8] dark:bg-red-900/20 text-[#E31E24] dark:text-red-400 text-sm font-medium border border-[#f5c6c7] dark:border-red-900">
-              <X size={13} strokeWidth={2.5} className="flex-shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-[#1a1d2e] dark:text-[#e4e6f0] mb-1.5">
-                Refer To Member <span className="text-[#E31E24]">*</span>
-              </label>
-              <select
-                className="input"
-                value={form.to}
-                onChange={e => setForm(f => ({ ...f, to: e.target.value }))}
-              >
-                <option value="">Select member…</option>
-                {members.map(m => (
-                  <option key={m.uid} value={m.uid}>
-                    {m.name} — {m.business}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-[#1a1d2e] dark:text-[#e4e6f0] mb-1.5">
-                Client Name <span className="text-[#E31E24]">*</span>
-              </label>
-              <input
-                className="input"
-                placeholder="e.g. Metro Foods Pvt Ltd"
-                value={form.client}
-                onChange={e => setForm(f => ({ ...f, client: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-[#1a1d2e] dark:text-[#e4e6f0] mb-1.5">
-                Estimated Value (₹){' '}
-                <span className="font-normal text-[#9ea3ba]">(optional)</span>
-              </label>
-              <input
-                className="input"
-                type="number"
-                placeholder="e.g. 80000"
-                value={form.value}
-                onChange={e => setForm(f => ({ ...f, value: e.target.value }))}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-semibold text-[#1a1d2e] dark:text-[#e4e6f0] mb-1.5">
-                Notes{' '}
-                <span className="font-normal text-[#9ea3ba]">(optional)</span>
-              </label>
-              <input
-                className="input"
-                placeholder="Any relevant details…"
-                value={form.notes}
-                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 mt-6">
-            <button
-              onClick={handleAdd}
-              disabled={saving}
-              className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm disabled:opacity-60 disabled:translate-y-0"
-            >
-              {saving
-                ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
-                : 'Submit Slip'
-              }
-            </button>
-            <button onClick={closeForm} className="btn-ghost px-5 py-2.5 text-sm">
-              Cancel
-            </button>
-          </div>
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#fce8e8] dark:bg-red-900/20 text-[#E31E24] dark:text-red-400 text-sm font-medium border border-[#f5c6c7] dark:border-red-900">
+          <X size={13} strokeWidth={2.5} className="flex-shrink-0" />
+          {error}
         </div>
       )}
 
@@ -405,21 +258,20 @@ export default function MyReferrals() {
             No {filter !== 'all' ? filter : ''} referrals yet
           </p>
           <p className="text-xs text-[#9ea3ba] mt-1">
-            Click "Log Referral" to add your first slip
+            Log a referral from the dashboard My Activity card
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map(r => {
-            const cfg      = statusConfig[r.status] || statusConfig.pending
-            const isFromMe = r.from === user?.uid
-            const isToMe   = r.to === user?.uid
+            const cfg      = getReferralStatusMeta(r.status)
+            const isFromMe = isGivenBy(r, user?.uid)
+            const isToMe   = isReceivedBy(r, user?.uid)
             const fromName = membersMap[r.from]?.name || r.fromName || 'Unknown'
             const toName   = membersMap[r.to]?.name || r.toName || 'Unknown'
             const client   = r.client || r.details?.referral || 'Referral'
             const notes    = r.notes || r.details?.comments
-            const canConvert = isToMe && !isConverted(r)
-            const canAddTyfcb = isToMe && isConverted(r) && !r.tyfcbId
+            const canAddTyfcb = isToMe && isConvertedReferral(r) && !r.tyfcbId
 
             return (
               <div
@@ -478,20 +330,23 @@ export default function MyReferrals() {
                     >
                       {currency(r.value)}
                     </div>
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold ${cfg.badge}`}>
-                      {cfg.label}
-                    </span>
-                    <div className="text-xs text-[#9ea3ba]">{r.date}</div>
-                    {canConvert && (
-                      <button
-                        type="button"
+                    {isToMe ? (
+                      <select
+                        value={normalizeReferralStatus(r.status)}
                         disabled={saving}
-                        onClick={() => handleMarkConverted(r)}
-                        className="mt-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#2e7d32] hover:bg-[#256427] text-white disabled:opacity-50"
+                        onChange={(e) => handleStatusChange(r, e.target.value)}
+                        className="mt-1 max-w-[220px] px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-[#CDD0E0] dark:border-[#313655] bg-white dark:bg-[#1c2035] text-[#1a1d2e] dark:text-[#e4e6f0] focus:outline-none focus:ring-2 focus:ring-[#1B2E6B]/30 disabled:opacity-50"
                       >
-                        Mark as converted
-                      </button>
+                        {REFERRAL_STATUSES.map(opt => (
+                          <option key={opt.key} value={opt.key}>{opt.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold ${cfg.badge}`}>
+                        {cfg.label}
+                      </span>
                     )}
+                    <div className="text-xs text-[#9ea3ba]">{r.date}</div>
                     {canAddTyfcb && (
                       <button
                         type="button"

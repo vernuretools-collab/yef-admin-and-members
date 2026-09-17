@@ -3,6 +3,7 @@ import {
   collection, getDocs, query, where, addDoc, updateDoc,
   doc, setDoc, getDoc, increment, Timestamp, serverTimestamp
 } from 'firebase/firestore'
+import { isConvertedReferral } from '../utils/referralStatus'
 
 
 export const currency = (v) =>
@@ -399,11 +400,87 @@ export const addSlipHistory = async ({
   return ref.id
 }
 
-export const markReferralConverted = async (referralId) => {
-  await updateDoc(doc(db, 'referrals', referralId), {
-    status: 'converted',
-    convertedAt: serverTimestamp(),
+export const updateSlipHistory = async ({
+  id,
+  type,
+  fromUid,
+  fromName,
+  toUid = null,
+  toName = null,
+  amount = 0,
+  details = {},
+  previous = {},
+}) => {
+  if (!id) throw new Error('Missing slip id')
+
+  const detailsSafe = sanitizeValue(details) || {}
+  const isReferral = type === 'referrals'
+  const client = detailsSafe.referral || detailsSafe.client || ''
+  const notes = detailsSafe.comments || detailsSafe.notes || detailsSafe.topics || ''
+  const value = isReferral
+    ? Number(detailsSafe.value) || Number(amount) || 0
+    : Number(amount) || 0
+  const otherUid = toUid || fromUid
+  const date = detailsSafe.date || previous.date || previous.details?.date || new Date().toISOString().slice(0, 10)
+
+  await updateDoc(doc(db, 'referrals', id), {
+    from: fromUid || null,
+    to: otherUid || null,
+    fromUid: fromUid || null,
+    toUid: toUid || null,
+    fromName: fromName || '',
+    toName: toName || '',
+    amount: value,
+    value,
+    client,
+    notes,
+    details: detailsSafe,
+    date,
+    updatedAt: serverTimestamp(),
   })
+
+  const applyPalms = Boolean(previous.historyType) && !previous.legacy && !previous.prior
+
+  if (applyPalms && type === 'tyfcb') {
+    const oldAmount = Number(previous.amount) || Number(previous.details?.amount) || 0
+    const delta = value - oldAmount
+    if (delta !== 0 && fromUid) await incrementSlip(fromUid, 'tyfcb', delta)
+
+    const linkedSnap = await getDocs(query(collection(db, 'referrals'), where('tyfcbId', '==', id)))
+    await Promise.all(
+      linkedSnap.docs.map(d => updateDoc(d.ref, { value, amount: value }))
+    )
+  }
+
+  if (applyPalms && (type === 'referrals' || type === 'oneToOne')) {
+    const oldTo = previous.toUid || null
+    const newTo = toUid || null
+    if (oldTo && oldTo !== newTo) {
+      try { await incrementSlip(oldTo, type, -1) } catch (err) {
+        console.error('Failed to decrement previous member slip total:', err)
+      }
+    }
+    if (newTo && oldTo !== newTo) {
+      try { await incrementSlip(newTo, type, 1) } catch (err) {
+        console.error('Failed to increment new member slip total:', err)
+      }
+    }
+  }
+}
+
+export const updateReferralStatus = async (referralId, status) => {
+  const payload = {
+    status,
+    statusUpdatedAt: serverTimestamp(),
+  }
+  if (status === 'got_business' || status === 'converted') {
+    payload.convertedAt = serverTimestamp()
+  }
+  await updateDoc(doc(db, 'referrals', referralId), payload)
+}
+
+export const markReferralConverted = async (referralId) => {
+  await updateReferralStatus(referralId, 'got_business')
 }
 
 /**
@@ -419,8 +496,8 @@ export const recordTyfcb = async ({
   referralId = null,
 }) => {
   const value = Number(amount) || 0
+  // Credit closed business only to the member who received the referral (the one logging TYFCB).
   if (fromUid) await incrementSlip(fromUid, 'tyfcb', value)
-  if (toUid && toUid !== fromUid) await incrementSlip(toUid, 'tyfcb', value)
 
   const tyfcbId = await addSlipHistory({
     type: 'tyfcb',
@@ -434,7 +511,7 @@ export const recordTyfcb = async ({
 
   if (referralId) {
     await updateDoc(doc(db, 'referrals', referralId), {
-      status: 'converted',
+      status: 'got_business',
       value,
       amount: value,
       tyfcbId,
@@ -443,6 +520,38 @@ export const recordTyfcb = async ({
   }
 
   return tyfcbId
+}
+
+/** TYFCB credit for a member: thank-you amounts they logged as the receiver, not as the giver. */
+export const sumMemberTyfcbCredit = async (uid) => {
+  const [fromSnap, toSnap] = await Promise.all([
+    getDocs(query(collection(db, 'referrals'), where('from', '==', uid))),
+    getDocs(query(collection(db, 'referrals'), where('to', '==', uid))),
+  ])
+  const map = {}
+  ;[...fromSnap.docs, ...toSnap.docs].forEach(d => {
+    map[d.id] = { id: d.id, ...d.data() }
+  })
+  const rows = Object.values(map)
+
+  const receivedConverted = rows
+    .filter(r =>
+      (!r.historyType || r.historyType === 'referrals') &&
+      (r.to === uid || r.toUid === uid) &&
+      isConvertedReferral(r)
+    )
+    .reduce((sum, r) => sum + (Number(r.value) || Number(r.amount) || 0), 0)
+
+  const linkedTyfcbIds = new Set(rows.map(r => r.tyfcbId).filter(Boolean))
+  const standalone = rows
+    .filter(r =>
+      r.historyType === 'tyfcb' &&
+      (r.from === uid || r.fromUid === uid) &&
+      !linkedTyfcbIds.has(r.id)
+    )
+    .reduce((sum, r) => sum + (Number(r.amount) || Number(r.value) || 0), 0)
+
+  return receivedConverted + standalone
 }
 
 export const getMemberSlipHistory = async (uid) => {

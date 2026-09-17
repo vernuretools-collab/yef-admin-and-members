@@ -4,6 +4,7 @@ import { collection, getDocs } from 'firebase/firestore'
 import { onAuthStateChanged } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
 import { currency } from '../../data/firebaseData'
+import { getReferralStatusMeta } from '../../utils/referralStatus'
 import {
   Search, ChevronDown, ChevronUp, X, Loader2,
   AlertCircle, CheckCircle2, Circle, UserPlus
@@ -741,14 +742,8 @@ export default function MembersList() {
                             style={{ fontVariantNumeric: 'tabular-nums lining-nums' }}>
                             {currency(r.value)}
                           </div>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold mt-1 ${
-                            r.status === 'converted'
-                              ? 'bg-[#e8f5e9] text-[#2e7d32] dark:bg-green-900/30 dark:text-green-400'
-                              : r.status === 'given'
-                                ? 'bg-[#dce1f5] text-[#1B2E6B] dark:bg-[#1e254a] dark:text-[#7b95e4]'
-                                : 'bg-[#fff3e0] text-[#e65100] dark:bg-orange-900/30 dark:text-orange-400'
-                          }`}>
-                            {r.status}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold mt-1 ${getReferralStatusMeta(r.status).badge}`}>
+                            {getReferralStatusMeta(r.status).label}
                           </span>
                         </div>
                       </div>

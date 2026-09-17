@@ -9,6 +9,7 @@ import {
   Users, FolderKanban, Handshake, TrendingUp,
   AlertCircle, CheckCircle2, Circle, Loader2
 } from 'lucide-react'
+import { isConvertedReferral } from '../../utils/referralStatus'
 
 
 /* ─── Brand Tokens ───────────────────────────────────────────────────────── */
@@ -105,7 +106,7 @@ export default function AdminDashboard() {
 
   const active     = useMemo(() => members.filter(m => m.status === 'active'),        [members])
   const completed  = useMemo(() => projects.filter(p => p.status === 'completed'),    [projects])
-  const converted  = useMemo(() => referrals.filter(r => r.status === 'converted'),   [referrals])
+  const converted  = useMemo(() => referrals.filter(r => isConvertedReferral(r)),   [referrals])
   const totalValue = useMemo(() => projects.reduce((a, b) => a + (b.value || 0), 0), [projects])
 
   const memberValueData = useMemo(() =>
