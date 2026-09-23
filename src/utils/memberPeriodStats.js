@@ -41,6 +41,65 @@ const countEvents = (items, uid, type) =>
 
 const slipAmount = (item) => Number(item.amount) || Number(item.value) || 0
 
+/** IST has no DST; 06:00 Asia/Kolkata = 00:30 UTC. */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
+const WEDNESDAY = 3
+const PALMS_RESET_HOUR = 6
+
+export const getPalmsWeekStart = (now = Date.now()) => {
+  const instant = typeof now === 'number' ? now : new Date(now).getTime()
+  const ist = new Date(instant + IST_OFFSET_MS)
+  let daysBack = (ist.getUTCDay() - WEDNESDAY + 7) % 7
+  if (daysBack === 0 && ist.getUTCHours() < PALMS_RESET_HOUR) daysBack = 7
+  const startAsUtc = Date.UTC(
+    ist.getUTCFullYear(),
+    ist.getUTCMonth(),
+    ist.getUTCDate() - daysBack,
+    PALMS_RESET_HOUR,
+    0,
+    0,
+    0,
+  )
+  return startAsUtc - IST_OFFSET_MS
+}
+
+export const inPalmsWeek = (item, now = Date.now()) => {
+  if (item?.prior) return false
+  const ms = itemMillis(item)
+  if (!ms) return false
+  return ms >= getPalmsWeekStart(now) && ms <= (typeof now === 'number' ? now : new Date(now).getTime())
+}
+
+const itemTyfcbId = (item) => item?.tyfcbId || item?.details?.tyfcbId || null
+
+export const summarizeWeeklyActivity = (historyItems, uid, now = Date.now()) => {
+  const items = (historyItems || []).filter(i => inPalmsWeek(i, now))
+  const linkedTyfcbIds = new Set((historyItems || []).map(itemTyfcbId).filter(Boolean))
+
+  const receivedConverted = items
+    .filter(i =>
+      i.type === 'referrals' &&
+      i.toUid === uid &&
+      isConvertedReferral(i)
+    )
+    .reduce((sum, i) => sum + slipAmount(i), 0)
+
+  const standaloneTyfcb = items
+    .filter(i =>
+      i.type === 'tyfcb' &&
+      i.fromUid === uid &&
+      !linkedTyfcbIds.has(i.id)
+    )
+    .reduce((sum, i) => sum + slipAmount(i), 0)
+
+  return {
+    tyfcb: receivedConverted + standaloneTyfcb,
+    referrals: countEvents(items, uid, 'referrals'),
+    oneToOne: countEvents(items, uid, 'oneToOne'),
+    visitors: countEvents(items, uid, 'visitors'),
+  }
+}
+
 export const summarizeMemberPeriodStats = (historyItems, uid, period, palms = {}) => {
   const items = (historyItems || []).filter(i => inPeriod(i, period))
 

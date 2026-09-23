@@ -14,7 +14,7 @@ import {
   sumMemberTyfcbCredit,
   getMemberSlipHistory,
 } from '../../data/firebaseData'
-import { STATS_PERIODS, summarizeMemberPeriodStats } from '../../utils/memberPeriodStats'
+import { STATS_PERIODS, summarizeMemberPeriodStats, summarizeWeeklyActivity } from '../../utils/memberPeriodStats'
 import {
   RadarChart,
   Radar,
@@ -540,6 +540,11 @@ export default function MemberDashboard() {
     [slipHistory, user?.uid, statsPeriod, palms]
   )
 
+  const weeklyActivity = useMemo(
+    () => summarizeWeeklyActivity(slipHistory, user?.uid),
+    [slipHistory, user?.uid]
+  )
+
   const radarData = useMemo(() => {
     const refs = Number(palms.referrals || 0)
     const vis = Number(palms.visitors || 0)
@@ -631,7 +636,7 @@ export default function MemberDashboard() {
             My Activity
           </h2>
           <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-[#dce1f5] dark:bg-[#1e254a] text-[#1B2E6B] dark:text-[#7b95e4]">
-            Overall
+            This week
           </span>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -639,7 +644,7 @@ export default function MemberDashboard() {
             <SlipCard
               key={slip.key}
               slip={slip}
-              value={slips[slip.key] || 0}
+              value={weeklyActivity[slip.key] || 0}
               saving={savingKey === slip.key}
               onOpenModal={setActiveModal}
               onCopyInvite={handleCopyInviteLink}

@@ -39,6 +39,18 @@ export const getAllMeetings = async () => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
+export const scheduleMeeting = async ({ withUid, date, time, venue }) => {
+  const fn = httpsCallable(functions, 'scheduleMeeting')
+  const res = await fn({ withUid, date, time, venue })
+  return res.data
+}
+
+export const cancelMeeting = async (id) => {
+  const fn = httpsCallable(functions, 'cancelMeeting')
+  const res = await fn({ id })
+  return res.data
+}
+
 
 // ✅ Returns { uid: palmsData } map — used by Directory.jsx
 export const getAllPalms = async () => {

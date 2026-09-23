@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { db, storage, auth } from '../../data/firebase'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import {
   EmailAuthProvider,
   reauthenticateWithCredential,
@@ -30,6 +30,7 @@ import {
   Users,
   Camera,
   Lock,
+  Trash2,
 } from 'lucide-react'
 import { chapters } from '../../data/chapters'
 
@@ -118,6 +119,7 @@ export default function EditProfile() {
   const [galleryInput, setGalleryInput] = useState('')
   const [activeTab, setActiveTab] = useState('basic')
   const [uploading, setUploading] = useState(false)
+  const [removing, setRemoving] = useState(false)
   const fileRef = useRef(null)
 
   // ─── Password change state ────────────────────────────────────────────────
@@ -207,6 +209,27 @@ export default function EditProfile() {
     } finally {
       setUploading(false)
       e.target.value = ''
+    }
+  }
+
+  const handleRemoveImage = async () => {
+    if (!user?.uid || !form?.photoURL || removing) return
+    try {
+      setRemoving(true)
+      setError('')
+      try {
+        await deleteObject(ref(storage, `profiles/${user.uid}/avatar`))
+      } catch {
+        // Keep going even if the file is already gone or storage delete is denied.
+      }
+      await setDoc(doc(db, 'users', user.uid), { photoURL: '', updatedAt: serverTimestamp() }, { merge: true })
+      setForm(f => ({ ...f, photoURL: '' }))
+      setSaved(true)
+    } catch (err) {
+      console.error(err)
+      setError('Could not remove the image. Please try again.')
+    } finally {
+      setRemoving(false)
     }
   }
 
@@ -505,7 +528,20 @@ export default function EditProfile() {
                   </button>
                   <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
                 </div>
-                <div className="text-sm text-[#5c607a]">Click the photo to change the member image.</div>
+                <div className="flex flex-col gap-2">
+                  <div className="text-sm text-[#5c607a]">Click the photo to change the member image.</div>
+                  {form.photoURL && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      disabled={removing || uploading}
+                      className="inline-flex items-center gap-1.5 self-start text-sm font-semibold text-[#E31E24] hover:text-[#b7181c] disabled:opacity-60 transition-colors"
+                    >
+                      {removing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      {removing ? 'Removing…' : 'Remove photo'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
