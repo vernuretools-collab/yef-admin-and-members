@@ -25,20 +25,34 @@ const FEATURES = [
 export default function Login({ toggleDark, dark }) {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPass, setShowPass] = useState(false)
 
   const handleSubmit = async e => {
     e.preventDefault()
+    const form = e.currentTarget
     setError('')
     setLoading(true)
+    // A saved email is shown in the box before React knows about it.
+    // Read the fields once, after the browser has committed them.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const email = form.email?.value?.trim() || ''
+    const password = form.password?.value || ''
+    if (!email || !password) {
+      setError('Enter your email and password, then sign in.')
+      setLoading(false)
+      return
+    }
     try {
-      const user = await login(form.email, form.password)
-      navigate(user.role === 'admin' ? '/admin/dashboard' : '/member/dashboard', {
-        replace: true,
-      })
+      const user = await login(email, password)
+      if (user?.role === 'admin' || user?.role === 'member') {
+        navigate(user.role === 'admin' ? '/admin/dashboard' : '/member/dashboard', {
+          replace: true,
+        })
+        return
+      }
+      setError('This account has no admin or member role yet. Contact your chapter admin.')
     } catch (err) {
       const msg =
         err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
@@ -136,39 +150,37 @@ export default function Login({ toggleDark, dark }) {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} autoComplete="on" className="flex flex-col gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5" htmlFor="email">
                 Email address
               </label>
               <input
+                id="email"
+                name="email"
                 className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-gray-400"
                 type="email"
                 placeholder="you@chapter.com"
-                value={form.email}
-                onChange={e => {
-                  setForm(f => ({ ...f, email: e.target.value }))
-                  setError('')
-                }}
+                autoComplete="username"
+                onInput={() => setError('')}
                 required
                 autoFocus
               />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5" htmlFor="password">
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="password"
+                  name="password"
                   className="w-full px-4 py-3 pr-12 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-gray-400"
                   type={showPass ? 'text' : 'password'}
                   placeholder="••••••••"
-                  value={form.password}
-                  onChange={e => {
-                    setForm(f => ({ ...f, password: e.target.value }))
-                    setError('')
-                  }}
+                  autoComplete="current-password"
+                  onInput={() => setError('')}
                   required
                 />
                 <button

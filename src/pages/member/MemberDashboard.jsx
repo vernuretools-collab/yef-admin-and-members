@@ -271,7 +271,7 @@ function PeriodStatsCard({ stats, period, onPeriodChange }) {
           className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
           style={{ fontFamily: "'DM Sans', sans-serif" }}
         >
-          My PALMS Statistics
+          My Statistics
         </h2>
         <div className="flex items-center gap-3 flex-shrink-0">
           {STATS_PERIODS.map(p => {
@@ -553,7 +553,7 @@ export default function MemberDashboard() {
     return [
       { subject: 'Referrals', A: Math.min((refs / 5) * 100, 100) },
       { subject: 'Visitors', A: Math.min((vis / 25) * 100, 100) },
-      { subject: '1-to-1s', A: Math.min((one / 6) * 100, 100) },
+      { subject: 'One-to-Ones', A: Math.min((one / 6) * 100, 100) },
       { subject: 'TYFCB', A: Math.min((tyfcb / 10000) * 100, 100) },
     ]
   }, [palms, slips.tyfcb])
@@ -653,7 +653,7 @@ export default function MemberDashboard() {
         </div>
       </div>
 
-      {/* Period stats + PALMS + Meetings */}
+      {/* Period stats + activity chart + meetings */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
         <PeriodStatsCard
@@ -664,23 +664,20 @@ export default function MemberDashboard() {
 
         {/* Radar */}
         <div className={card + ' p-6'}>
-          <div className="flex items-start justify-between mb-5">
+          <div className="mb-5">
             <h2
               className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
               style={{ fontFamily: "'DM Sans', sans-serif" }}
             >
-              My PALMS Activity
+              Referrals, Visitors, One-to-Ones & TYFCB
             </h2>
-            <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-[#dce1f5] dark:bg-[#1e254a] text-[#1B2E6B] dark:text-[#7b95e4]">
-              PALMS
-            </span>
           </div>
           <ResponsiveContainer width="100%" height={260}>
-            <RadarChart data={radarData}>
+            <RadarChart data={radarData} outerRadius="68%" margin={{ top: 16, right: 36, bottom: 16, left: 36 }}>
               <PolarGrid stroke="#EEF0F7" />
               <PolarAngleAxis
                 dataKey="subject"
-                tick={{ fontSize: 12, fill: '#5c607a', fontFamily: 'Inter, sans-serif' }}
+                tick={{ fontSize: 11, fill: '#5c607a', fontFamily: 'Inter, sans-serif' }}
               />
               <Radar
                 dataKey="A"

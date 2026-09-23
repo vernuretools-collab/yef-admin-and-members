@@ -2,10 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { db } from '../../data/firebase'
 import { collection, getDocs } from 'firebase/firestore'
 import { currency } from '../../data/firebaseData'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
-  ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, Legend
-} from 'recharts'
 import { Download, BarChart3, Loader2 } from 'lucide-react'
 
 /* ─── PALMS traffic light ────────────────────────────────────────────────── */
@@ -41,14 +37,6 @@ const healthLabel = {
 /* ─── Shared tokens ──────────────────────────────────────────────────────── */
 const card = 'bg-white dark:bg-[#161929] rounded-2xl border border-[#CDD0E0] dark:border-[#313655] shadow-[0_1px_3px_rgba(27,46,107,0.07)]'
 
-const tooltipStyle = {
-  borderRadius: 10,
-  border: '1px solid #CDD0E0',
-  boxShadow: '0 4px 12px rgba(27,46,107,0.10)',
-  fontSize: 13,
-  fontFamily: 'Inter, sans-serif',
-}
-
 export default function AdminReports() {
   const [members,  setMembers]  = useState([])
   const [palmsMap, setPalmsMap] = useState({})
@@ -77,29 +65,6 @@ export default function AdminReports() {
     }
     load()
   }, [])
-
-  /* ── Derived data ── */
-  const avgPalms = useMemo(() => {
-    if (!members.length) return []
-    const n   = members.length
-    const sum = (key) => members.reduce((a, m) => a + (palmsMap[m.uid]?.[key] || 0), 0)
-    return [
-      { subject: 'Referrals',  A: Math.round(sum('referrals')  / n) },
-      { subject: 'Attendance', A: Math.round(sum('attendance') / n) },
-      { subject: '1-to-1',     A: Math.round(sum('oneToOne')   / n) },
-      { subject: 'CEU',        A: Math.round(sum('ceu')        / n) },
-    ]
-  }, [members, palmsMap])
-
-  const memberPalms = useMemo(() =>
-    members.map(m => ({
-      name:      m.name?.split(' ')[0],
-      referrals: palmsMap[m.uid]?.referrals || 0,
-      oneToOne:  palmsMap[m.uid]?.oneToOne  || 0,
-      ceu:       palmsMap[m.uid]?.ceu       || 0,
-    })),
-    [members, palmsMap]
-  )
 
   const leaderboard = useMemo(() =>
     members.map(m => {
@@ -176,83 +141,6 @@ export default function AdminReports() {
           <Download size={14} strokeWidth={2.5} />
           Export CSV
         </button>
-      </div>
-
-      {/* ── Charts Row ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* Radar — Chapter PALMS Average */}
-        <div className={`${card} p-6`}>
-          <div className="flex items-start justify-between mb-5">
-            <div>
-              <h2
-                className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              >
-                Chapter PALMS Average
-              </h2>
-              <p className="text-xs text-[#9ea3ba] mt-0.5">Average activity across all members</p>
-            </div>
-            <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-[#dce1f5] dark:bg-[#1e254a] text-[#1B2E6B] dark:text-[#7b95e4]">
-              Chapter avg
-            </span>
-          </div>
-          <ResponsiveContainer width="100%" height={260}>
-            <RadarChart data={avgPalms}>
-              <PolarGrid stroke="#EEF0F7" />
-              <PolarAngleAxis
-                dataKey="subject"
-                tick={{ fontSize: 12, fill: '#5c607a', fontFamily: 'Inter, sans-serif' }}
-              />
-              <Radar
-                dataKey="A" name="Chapter avg"
-                stroke="#1B2E6B" fill="#1B2E6B" fillOpacity={0.18} strokeWidth={2}
-                dot={{ r: 4, fill: '#1B2E6B', strokeWidth: 0 }}
-              />
-              <Tooltip contentStyle={tooltipStyle} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Bar — PALMS Comparison */}
-        <div className={`${card} p-6`}>
-          <div className="flex items-start justify-between mb-5">
-            <div>
-              <h2
-                className="text-base font-bold text-[#1a1d2e] dark:text-[#e4e6f0] leading-tight"
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              >
-                PALMS Comparison
-              </h2>
-              <p className="text-xs text-[#9ea3ba] mt-0.5">Referrals, 1-to-1, and CEU side-by-side</p>
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={memberPalms} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F7" vertical={false} />
-              <XAxis
-                dataKey="name"
-                tick={{ fontSize: 12, fill: '#5c607a', fontFamily: 'Inter, sans-serif' }}
-                axisLine={false} tickLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: '#9ea3ba', fontFamily: 'Inter, sans-serif' }}
-                allowDecimals={false} axisLine={false} tickLine={false}
-              />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend
-                iconType="circle" iconSize={8}
-                wrapperStyle={{ fontSize: 12, fontFamily: 'Inter, sans-serif' }}
-                formatter={v => (
-                  <span className="text-xs text-[#5c607a] dark:text-[#8890b0]">{v}</span>
-                )}
-              />
-              <Bar dataKey="referrals" fill="#1B2E6B" radius={[4, 4, 0, 0]} name="Referrals" />
-              <Bar dataKey="oneToOne"  fill="#E31E24" radius={[4, 4, 0, 0]} name="1-to-1" />
-              <Bar dataKey="ceu"       fill="#e65100" radius={[4, 4, 0, 0]} name="CEU" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
       </div>
 
       {/* ── Leaderboard ─────────────────────────────────────────────────── */}
