@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Mail, Phone, Globe, MapPin,
-  ArrowRight, X, ExternalLink, ShieldCheck, Building2, Briefcase
+  X, ExternalLink, ShieldCheck, Building2, Briefcase
 } from 'lucide-react'
 
 const LinkedinIcon = ({ size = 14, className = "" }) => (
@@ -59,7 +59,17 @@ export default function MemberCard({ member, palms, isMe }) {
   return (
     <>
       <article
-        className={`relative flex flex-col justify-between p-5 rounded-3xl border transition-all duration-300 hover:-translate-y-1 hover:shadow-xl bg-white dark:bg-[#13192e] ${
+        tabIndex={0}
+        onClick={() => setShowModal(true)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setShowModal(true)
+          }
+        }}
+        aria-label={`View profile of ${name}`}
+        className={`relative flex flex-col justify-between p-5 rounded-3xl border transition-all duration-300 hover:-translate-y-1 hover:shadow-xl bg-white dark:bg-[#13192e] cursor-pointer ${
           isMe
             ? 'border-[#1A2B6B] dark:border-[#3b4f98] shadow-[0_0_0_2px_rgba(26,43,107,0.15),0_8px_24px_rgba(26,43,107,0.12)]'
             : 'border-[#E8ECF8] dark:border-[#2a3460] shadow-[0_4px_20px_rgba(26,43,107,0.06)]'
@@ -176,9 +186,8 @@ export default function MemberCard({ member, palms, isMe }) {
           )}
         </div>
 
-        {/* Action Footer: Contact Icons (Left) + View Button (Right) */}
-        <div className="pt-3 border-t border-[#F0F2FA] dark:border-[#1c2340] flex items-center justify-between gap-2 mt-auto">
-          {/* ALWAYS SHOW EMAIL & PHONE ICONS */}
+        {/* Contact icons — link clicks stay on the link and do not open the profile */}
+        <div className="pt-3 border-t border-[#F0F2FA] dark:border-[#1c2340] flex items-center gap-2 mt-auto">
           <div className="flex items-center gap-1.5">
             {/* Email Icon Button */}
             {email ? (
@@ -187,6 +196,7 @@ export default function MemberCard({ member, palms, isMe }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 title={`Email: ${email}`}
+                onClick={(e) => e.stopPropagation()}
                 className="w-8 h-8 rounded-xl bg-[#F5F6FA] dark:bg-[#1c2340] border border-[#E8ECF8] dark:border-[#2a3460] text-[#1A2B6B] dark:text-[#8899d4] hover:bg-[#1A2B6B] hover:text-white dark:hover:bg-[#1A2B6B] dark:hover:text-white grid place-items-center transition-all duration-200 shadow-sm"
               >
                 <Mail size={14} />
@@ -205,6 +215,7 @@ export default function MemberCard({ member, palms, isMe }) {
               <a
                 href={`tel:${phone}`}
                 title={`Phone: ${phone}`}
+                onClick={(e) => e.stopPropagation()}
                 className="w-8 h-8 rounded-xl bg-[#F5F6FA] dark:bg-[#1c2340] border border-[#E8ECF8] dark:border-[#2a3460] text-[#1A2B6B] dark:text-[#8899d4] hover:bg-[#1A2B6B] hover:text-white dark:hover:bg-[#1A2B6B] dark:hover:text-white grid place-items-center transition-all duration-200 shadow-sm"
               >
                 <Phone size={14} />
@@ -225,6 +236,7 @@ export default function MemberCard({ member, palms, isMe }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 title={`Website: ${website}`}
+                onClick={(e) => e.stopPropagation()}
                 className="w-8 h-8 rounded-xl bg-[#F5F6FA] dark:bg-[#1c2340] border border-[#E8ECF8] dark:border-[#2a3460] text-[#1A2B6B] dark:text-[#8899d4] hover:bg-[#1A2B6B] hover:text-white dark:hover:bg-[#1A2B6B] dark:hover:text-white grid place-items-center transition-all duration-200 shadow-sm"
               >
                 <Globe size={14} />
@@ -238,24 +250,17 @@ export default function MemberCard({ member, palms, isMe }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 title="LinkedIn Profile"
+                onClick={(e) => e.stopPropagation()}
                 className="w-8 h-8 rounded-xl bg-[#F5F6FA] dark:bg-[#1c2340] border border-[#E8ECF8] dark:border-[#2a3460] text-[#0A66C2] dark:text-[#8899d4] hover:bg-[#0A66C2] hover:text-white dark:hover:bg-[#0A66C2] dark:hover:text-white grid place-items-center transition-all duration-200 shadow-sm"
               >
                 <LinkedinIcon size={14} />
               </a>
             )}
           </div>
-
-          {/* View Button */}
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#FDE8EB] hover:bg-[#F7C7D0] dark:bg-[#3d0008]/50 dark:hover:bg-[#5c000c]/60 text-[#D0021B] font-bold text-xs transition-all shadow-sm"
-          >
-            View <ArrowRight size={13} />
-          </button>
         </div>
       </article>
 
-      {/* Detail Modal when user clicks "View ->" */}
+      {/* Detail modal when the member card is clicked */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="relative w-full max-w-xl bg-white dark:bg-[#13192e] rounded-3xl border border-[#E8ECF8] dark:border-[#2a3460] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
